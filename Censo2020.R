@@ -1,13 +1,18 @@
-install.packages("R.utils")
+# La explicación del siguiente código en: https://abxda.medium.com/r-espacial-y-el-tidyverso-con-datos-censales-2020-f28e5314f157
+#Instalación de paquetes
 
+install.packages("tidyverse")
+
+install.packages("R.utils")
 
 if (!requireNamespace("BiocManager", quietly = TRUE))
   install.packages("BiocManager")
 
 BiocManager::install("recount")
 
+install.packages("sf")
 
-setwd("/Users/abxda/RCenso2020")
+# Inicializar funciones
 
 library(tidyverse)
 library(glue)
@@ -15,7 +20,7 @@ library(sf)
 library(R.utils)
 library(recount)
 
-#Funciones de apoyo
+#Función de apoyo
 extract_shapefile <- function(z,e,s){
   m<-c(paste(s,sep="","m.shp"),paste(s,sep="","m.dbf"),paste(s,sep="","m.prj"),paste(s,sep="","m.shx"))
   cd<-c(paste(s,sep="","cd.shp"),paste(s,sep="","cd.dbf"),paste(s,sep="","cd.prj"),paste(s,sep="","cd.shx"))
@@ -23,19 +28,17 @@ extract_shapefile <- function(z,e,s){
   unzip(zipfile=z, files=c(m,cd,pem), exdir=e)
 }
 
-
-
 # Crear Directorios
 
-mkdirs("./inegi/ccpvagebmza/csv/conjunto_de_datos") 
-mkdirs("./inegi/mgccpv/shp/m/conjunto_de_datos") 
-mkdirs("./inegi/mgccpv/gpkg/") 
+mkdirs("inegi/ccpvagebmza/csv/conjunto_de_datos") 
+mkdirs("inegi/mgccpv/shp/m/conjunto_de_datos") 
+mkdirs("inegi/mgccpv/gpkg/") 
 
 # Descarga Datos
 directory <- "./inegi/ccpvagebmza/"
 estado <- str_pad(1:32, 2, pad = "0")
 df_estado <- tibble(estado, archivo = glue("{directory}ageb_mza_urbana_{estado}_cpv2020_csv.zip"), url=glue("https://www.inegi.org.mx/contenidos/programas/ccpv/2020/datosabiertos/ageb_manzana/ageb_mza_urbana_{estado}_cpv2020_csv.zip"))
-download.file(url=df_estado %>% pull(url), destfile=df_estado %>% pull(archivo), method="libcurl")
+Map(function(u, d) download_retry(u, d, mode="wb",N.TRIES = 20L), df_estado %>% pull(url), df_estado %>% pull(archivo))
 
 directory <- "./inegi/mgccpv/"
 url_mgccpv <- "https://www.inegi.org.mx/contenidos/productos/prod_serv/contenidos/espanol/bvinegi/productos/geografia/marcogeo/889463807469/"
@@ -44,21 +47,19 @@ df_states <- tibble(state=states,file=glue("{directory}{state}"), url=glue("{url
 Map(function(u, d) download_retry(u, d, mode="wb",N.TRIES = 20L), df_states %>% pull(url), df_states %>% pull(file))
 
 # Extracción de Datos
-directory <- "./inegi/ccpvagebmza/"
-csv_dir <- paste(directory, sep = "","csv/")
+directory <- "inegi/ccpvagebmza/"
+csv_dir <- paste(directory, sep = "","csv")
 estado <- str_pad(1:32, 2, pad = "0")
 df_estado <- tibble(estado, archivo = glue("{directory}ageb_mza_urbana_{estado}_cpv2020_csv.zip"), csv_dir=csv_dir, csv_file=glue("conjunto_de_datos/conjunto_de_datos_ageb_urbana_{estado}_cpv2020.csv"))
 Map(function(z,f,e) unzip(zipfile=z, files=f, exdir=e), df_estado %>% pull(archivo), df_estado %>% pull(csv_file), df_estado %>% pull(csv_dir) )
 
-directory <- "./inegi/mgccpv/"
-shp_dir <- paste(directory, sep = "","shp/m/")
+directory <- "inegi/mgccpv/"
+shp_dir <- paste(directory, sep = "","shp/m")
 states <- c("01_aguascalientes.","02_bajacalifornia.","03_bajacaliforniasur.","04_campeche.","05_coahuiladezaragoza.","06_colima.","07_chiapas.","08_chihuahua.","09_ciudaddemexico.","10_durango.","11_guanajuato.","12_guerrero.","13_hidalgo.","14_jalisco.","15_mexico.","16_michoacandeocampo.","17_morelos.","18_nayarit.","19_nuevoleon.","20_oaxaca.","21_puebla.","22_queretaro.","23_quintanaroo.","24_sanluispotosi.","25_sinaloa.","26_sonora.","27_tabasco.","28_tamaulipas.","29_tlaxcala.","30_veracruzignaciodelallave.","31_yucatan.","32_zacatecas.")
 df_states <- tibble(estado=estado, state=states,file=glue("{directory}{state}zip"), shp_dir=shp_dir,shp_file=glue("conjunto_de_datos/{estado}"))
-df_states
 Map(function(z,e,s) extract_shapefile(z,e,s), df_states %>% pull(file), df_states %>% pull(shp_dir), df_states %>% pull(shp_file) )
 
 # Union de Datos
-
 create_gpkg <- function(estado){
     print(paste("procesando estado: ", estado))
     df <- read_csv(glue("./inegi/ccpvagebmza/csv/conjunto_de_datos/conjunto_de_datos_ageb_urbana_{estado}_cpv2020.csv"), na = c('N/A','N/D','*'),)
@@ -82,9 +83,6 @@ create_gpkg <- function(estado){
     print(paste("guardando datos del estado: ",estado))
     final_shape %>% st_write(glue("./inegi/mgccpv/gpkg/cpv2020_{estado}.gpkg"), "cpv2020")
 }
-
-
-
 start_time <- Sys.time()
 estado <- str_pad(1:32, 2, pad = "0")
 Map(function(e) create_gpkg(e), estado)
